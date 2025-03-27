@@ -1,39 +1,27 @@
-#' @rdname geom_abline_interactive
+#' @title Create interactive lines
+#'
+#' @description
+#' The geometry is based on [ggplot2::geom_line()].
+#' See the documentation for those functions for more details.
+#'
+#' @note
+#' The following shapes id 3, 4 and 7 to 14 are composite symbols and should not be used.
+#'
+#' @param ... arguments passed to base function,
+#' plus any of the [interactive_parameters].
+#' @inheritSection interactive_parameters Details for interactive geom functions
 #' @examples
-#' # add horizontal interactive reference lines to a ggplot -------
-#' @example examples/geom_hline_interactive.R
+#' # add interactive lines to a ggplot -------
+#' @example examples/geom_line_interactive.R
 #' @seealso [girafe()]
 #' @export
-geom_hline_interactive <- function(...)
-  layer_interactive(geom_hline, ...)
+geom_line_interactive <- function(...)
+  layer_interactive(geom_line, ...)
 
 #' @rdname ggiraph-ggproto
 #' @format NULL
 #' @usage NULL
 #' @export
-
-'''GeomInteractiveLine <- ggproto(
-  "GeomInteractiveLine",
-  GeomLine,
-  default_aes = add_default_interactive_aes(GeomLine),
-  parameters = interactive_geom_parameters,
-  draw_key = interactive_geom_draw_key,
-  
-  # Customize the panel drawing function for interactivity
-  draw_panel = function(data, panel_params, coord, lineend = "butt", ..., .ipar = IPAR_NAMES) {
-    ranges <- coord$backtransform_range(panel_params)
-    
-    # Adjust the line coordinates to ensure proper panel clipping
-    data$xend <- data$x
-    data$yend <- data$y
-    
-    # Ensure the line is drawn correctly within the panel range
-    GeomInteractiveSegment$draw_panel(unique0(data), panel_params, coord, lineend = lineend, ..., .ipar = .ipar)
-  }
-)
-
-
-'''
 
 GeomInteractiveLine <- ggproto(
   "GeomInteractiveLine",
@@ -41,19 +29,56 @@ GeomInteractiveLine <- ggproto(
   default_aes = add_default_interactive_aes(GeomLine),
   parameters = interactive_geom_parameters,
   draw_key = interactive_geom_draw_key,
-  
-  draw_panel = function(data, panel_params, coord, lineend = "butt", ..., .ipar = IPAR_NAMES) {
-    # Ensure that the data is within the valid range
-    ranges <- coord$backtransform_range(panel_params)
+  draw_panel = function(self, data, panel_params, coord, ..., .ipar = IPAR_NAMES) {
+    zz <- GeomLine$draw_panel(data, panel_params, coord, ...)
+    coords <- coord$transform(data, panel_params)
+    x <- add_interactive_attrs(zz, coords, ipar = .ipar)
     
-    # Correct the line endpoints to make sure they stay within the plot bounds
-    data$xend <- pmin(pmax(data$x, ranges$x[1]), ranges$x[2])
-    data$yend <- pmin(pmax(data$y, ranges$y[1]), ranges$y[2])
+    shapes <- unique(x$pch)
+    shape_index <- shapes %in% shapes_with_lines
     
-    # Call GeomInteractiveSegment to draw the interactive segments
-    GeomInteractiveSegment$draw_panel(unique0(data), panel_params, coord, lineend = lineend, ..., .ipar = .ipar)
+    if (length(shapes) > 1 && any(shape_index)) {
+      # if some shapes contain lines, split the grob to multiple ones:
+      # one grob for all points without these shapes and then
+      # a grob for each different shape
+      shapes_with_lines_present <- intersect(shapes, shapes_with_lines)
+      grobs <- lapply(c(NA, shapes_with_lines_present), function(shape) {
+        partialPointGrob(x, pch = shape)
+      })
+      gTree(children = do.call(gList, grobs))
+    } else {
+      x
+    }
   }
 )
 
+shapes_with_lines <- c(3, 4, 7, 8, 9, 10, 11, 12, 13, 14)
 
-
+partialLineGrob <- function(gr, pch = NA) {
+  if (is.na(pch)) {
+    index <- !(gr$pch %in% shapes_with_lines)
+  } else {
+    index <- gr$pch %in% pch
+  }
+  if (!any(index)) {
+    return(zeroGrob())
+  }
+  gr$name <- paste0(gr$name, ".", pch)
+  for (m in c("x", "y", "pch", "size")) {
+    if (length(gr[[m]]) > 1) {
+      gr[[m]] <- gr[[m]][index]
+    }
+  }
+  for (m in c("col", "fill", "fontsize", "lwd")) {
+    if (length(gr$gp[[m]]) > 1) {
+      gr$gp[[m]] <- gr$gp[[m]][index]
+    }
+  }
+  ipar <- get_ipar(gr)
+  for (m in ipar) {
+    if (length(gr$.interactive[[m]]) > 1) {
+      gr$.interactive[[m]] <- gr$.interactive[[m]][index]
+    }
+  }
+  gr
+}
